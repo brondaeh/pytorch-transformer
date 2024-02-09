@@ -11,6 +11,9 @@ class InputEmbeddings(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_model)
 
     def forward(self, x):
+        # Map the indices of the input sequence of tokens (x) to corresponding word embeddings
+        # Scale by sqrt(d_model) so that embeddings have reasonably sized values
+        # Input x (batch, seq_len) -> Output embedding (batch, seq_len, d_model)
         return self.embedding(x) * math.sqrt(self.d_model)
     
 
@@ -40,7 +43,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + (self.pe[:, :x.shape[1], :]).requires_grad_(False)  # requires_grade_(False) used so the tensor is not learned by the model
+        x = x + (self.pe[:, :x.shape[1], :]).requires_grad_(False)  # requires_grade_(False) is used so the tensor is not learned by the model
         return self.dropout(x)
     
 
