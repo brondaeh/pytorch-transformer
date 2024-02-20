@@ -226,13 +226,16 @@ def train_model(config):
     # Ensure the corresponding weights folder exists for the datasource
     Path(f"{config['datasource']}_{config['model_folder']}").mkdir(parents=True, exist_ok=True)
 
+    # Initialize datasets, tokenizers, and transformer model
     train_dataloader, val_dataloader, tokenizer_source, tokenizer_target = get_ds(config)
     model = get_model(config, tokenizer_source.get_vocab_size(), tokenizer_target.get_vocab_size()).to(device)
 
     # Tensorboard
     writer = SummaryWriter(config['experiment_name'])
 
+    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer_source.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=config['num_epochs'])
 
     # If specified, preload the model before training
     initial_epoch = 0
@@ -248,8 +251,6 @@ def train_model(config):
         global_step = state['global_step']
     else:
         print('No model to preload, starting from scratch')
-
-    loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_source.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
     for epoch in range(initial_epoch, config['num_epochs']):
         torch.cuda.empty_cache()
@@ -271,7 +272,7 @@ def train_model(config):
             label = batch['label'].to(device)   # (batch, seq_len)
 
             # Compute the loss: (batch, seq_len, target_vocab_size) -> (batch * seq_len, target_vocab_size)
-            loss = loss_fn(proj_output.view(-1, tokenizer_target.get_vocab_size()), label.view(-1))
+            loss = criterion(proj_output.view(-1, tokenizer_target.get_vocab_size()), label.view(-1))
             batch_iterator.set_postfix({'loss': f'{loss.item():6.3f}'})
 
             # Apply log to the loss
@@ -289,7 +290,8 @@ def train_model(config):
 
         # Run validation at the end of each epoch
         run_validation(model, val_dataloader, tokenizer_source, tokenizer_target, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
-
+        scheduler.step()
+        
         # Save the model after each epoch is finished
         model_filename = get_weights_file_path(config, f'{epoch:02d}')
         torch.save({
