@@ -4,7 +4,7 @@ import math
 
 
 class InputEmbeddings(nn.Module):
-    def __init__(self, d_model: int, vocab_size: int):
+    def __init__(self, d_model: int, vocab_size: int) -> None:
         super().__init__()
         self.d_model = d_model
         self.vocab_size = vocab_size
@@ -24,39 +24,44 @@ class PositionalEncoding(nn.Module):
         self.seq_len = seq_len
         self.dropout = nn.Dropout(dropout)
 
-        # Create a matrix of shape (seq_len, d_model)
+        # Create a matrix of shape (seq_len, d_model) to store positional encodings
         pe = torch.zeros(seq_len, d_model)
         
-        # Create a vector of shape (seq_len, 1)
+        # Create a vector of shape (seq_len, 1) containing values from 0 to seq_len - 1
         position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+
+        # Create a vector of shape (d_model / 2)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
 
-        # Apply sine to even positions
-        pe[:, 0::2] = torch.sin(position * div_term)
+        # Apply sine to even indices
+        pe[:, 0::2] = torch.sin(position * div_term)    # sin(position * (10000 ** (2i / d_model))
 
-        # Apply cosine to odd positions
-        pe[:, 1::2] = torch.cos(position * div_term)
+        # Apply cosine to odd indices
+        pe[:, 1::2] = torch.cos(position * div_term)    # cos(position * (10000 ** (2i / d_model))
 
+        # Add a batch dimension to positional encoding matrix
         pe = pe.unsqueeze(0)    # (1, seq_len, d_model)
 
         # PEs are not learned parameters of the model, but these tensors must be stored in a buffer to be reused for different inputs
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + (self.pe[:, :x.shape[1], :]).requires_grad_(False)  # requires_grade_(False) is used so the tensor is not learned by the model
+        # Add positional encoding to the input x
+        x = x + (self.pe[:, :x.shape[1], :]).requires_grad_(False)  # requires_grad_(False) is used so the tensor is not learned by the model
         return self.dropout(x)
     
 
 class LayerNormalization(nn.Module):
-    def __init__(self, eps: float = 10**-6) -> None:
+    def __init__(self, features: int, eps: float = 10**-6) -> None:
         super().__init__()
-        self.eps = eps                              # epsilon is used for numerical stability and to avoid division by 0
-        self.alpha = nn.Parameter(torch.ones(1))    # learned parameter that is multiplied
-        self.bias = nn.Parameter(torch.zeros(1))    # learned parameter that is added
+        self.eps = eps                                      # epsilon is used for numerical stability and to avoid division by 0
+        self.alpha = nn.Parameter(torch.ones(features))     # learned parameter that is multiplied
+        self.bias = nn.Parameter(torch.zeros(features))     # learned parameter that is added
 
     def forward(self, x):
-        mean = x.mean(dim = -1, keepdim=True)
-        std = x.std(dim = -1, keepdim=True)
+        # Shape x: (batch, seq_len, hidden_size)
+        mean = x.mean(dim = -1, keepdim=True)       # (batch, seq_len, 1)
+        std = x.std(dim = -1, keepdim=True)         # (batch, seq_len, 1)
         return self.alpha * (x - mean) / (std + self.eps) + self.bias
 
 
@@ -149,7 +154,9 @@ class EncoderBlock(nn.Module):
         self.residual_connections = nn.ModuleList([ResidualConnection(features, dropout) for _ in range(2)])
 
     def forward(self, x, src_mask):
+        # Lambda is used to apply self-attention to the input x where the queries, keys, and values are all x; the result is passed to the skip connection
         x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
+        # The feed-forward block is applied to the input x and the result is passed to the second skip connection
         x = self.residual_connections[1](x, self.feed_forward_block)
         return x
     
